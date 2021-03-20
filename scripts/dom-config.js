@@ -9,11 +9,9 @@ if (!env.isFrontEnd) {
         ProcessExternalResources: false
     };
 
-    var jsnode = require('jsdom/lib/jsdom/living/generated/Node.js');
-
     module.exports = {
-        jsdom: jsdom.jsdom,
-        Node: jsnode.expose.Window.Node
+        jsdom: jsdom.JSDOM,
+        Node: (new jsdom.JSDOM("<br/>")).window.Node
     }
 } else {
     module.exports = {

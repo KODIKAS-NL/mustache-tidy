@@ -1,1432 +1,175 @@
-var mustacheTidy =
-/******/ (function(modules) { // webpackBootstrap
-/******/ 	// The module cache
-/******/ 	var installedModules = {};
+/*
+ * ATTENTION: The "eval" devtool has been used (maybe by default in mode: "development").
+ * This devtool is neither made for production nor for readable output files.
+ * It uses "eval()" calls to create a separate source file in the browser devtools.
+ * If you are trying to read the output file, select a different devtool (https://webpack.js.org/configuration/devtool/)
+ * or disable the default devtool with "devtool: false".
+ * If you are looking for production-ready output files, see mode: "production" (https://webpack.js.org/configuration/mode/).
+ */
+var mustacheTidy;
+/******/ (() => { // webpackBootstrap
+/******/ 	var __webpack_modules__ = ({
 
+/***/ "./index.js":
+/*!******************!*\
+  !*** ./index.js ***!
+  \******************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+eval("\n// Set dependencies\nvar domConfig = script('dom-config');\nvar utils = script('utils');\nvar debug = script('debug');\nvar env = script('env');\nvar replaceEmptyNode = script('replace-empty-node');\nvar moveTags = script('move-tags');\nvar extendTags = script('extend-tags');\nvar fixTableTags = script('fix-table-tags');\nvar improveTags = script('improve-tags');\n\n// Module variables\nvar jsdom = domConfig.jsdom;\nvar Node = domConfig.Node;\nvar repeatString = utils.repeatString;\nvar startsWithTag = utils.startsWithTag;\nvar endsWithTag = utils.endsWithTag;\nvar log = debug.log;\n\n//'startSpaces' and 'endSpaces' also match \\u00a0, that is a representation of &nbsp; in textNode.nodeValue\nvar regs = {\n    spaces: new RegExp('\\\\s+', 'g'),\n    startSpaces: new RegExp('^\\\\s+'),\n    endSpaces: new RegExp('\\\\s+$'),\n    tagName: new RegExp('(?:[^\"\\']+|\"[^\"]+\"|\\'[^\\']+\\')', 'g'),\n    tag: new RegExp('\\\\{\\\\{\\\\s*([#^/])([^}]*)\\\\}\\\\}', 'g')\n};\n\nmodule.exports = mustacheTidy;\n\n// Require script\nfunction script(module) {\n    return __webpack_require__(\"./scripts sync recursive ^\\\\.\\\\/.*$\")(\"./\" + module);\n}\n\n// Base lib function\nfunction mustacheTidy(html, options) {\n    if (typeof html !== 'string' && !(html instanceof Node)) return null;\n\n    var doc = null;\n    var root = null;\n    var returnResult = false;\n\n    var step;\n    var improve;\n    var notClosed;\n    var wrongClosed;\n    var currentOpened;\n\n    initDom();\n    initVars('1:tidy');\n    tidy();\n    if (root instanceof Node) root.normalize();\n\n    initVars('2:improve');\n    tidy();\n    improveTags.run(improve);\n\n    initVars('3:fix-tables');\n    tidy();\n\n    debug.hideInvalidTags(notClosed, wrongClosed);\n    debug.logResult(root);\n\n    return returnResult ? root.innerHTML : null;\n\n    // Init variables and modules\n    function initVars(doStep) {\n        for (var i = 0; i < regs.length; i++) {\n            regs[i].lastIndex = 0;\n        }\n\n        step = doStep;\n        improve = [];\n        notClosed = {};\n        wrongClosed = [];\n        currentOpened = [];\n\n        debug.init(options);\n        utils.init(options);\n        replaceEmptyNode.init(options);\n        moveTags.init(options);\n        extendTags.init(options);\n        fixTableTags.init(options);\n        improveTags.init(options);\n    }\n\n    // Init dom tree\n    function initDom() {\n        if (env.isFrontEnd) {\n            // On front-end input can be either string or DOM Node\n            doc = document;\n\n            if (typeof html === 'string') {\n                returnResult = true;\n                root = document.createElement('div');\n                root.innerHTML = html;\n            } else {\n                root = html;\n            }\n        } else {\n            // In node.js we expect only string input\n            doc = new jsdom(html).window.document;\n            root = doc.documentElement.lastChild;\n            returnResult = true;\n        }\n\n        if (!options) options = {};\n        options.doc = doc;\n        options.root = root;\n        options.regs = regs;\n    }\n\n    // Launch processing given html source\n    function tidy() {\n        var level = 0;\n\n        tidyNode(root, level);\n    }\n\n    // Perform tidy on single DOM node\n    function tidyNode(node, level) {\n        if (node.nodeType === Node.TEXT_NODE) return tidyTextNode(node, level);\n        if (node.nodeType !== Node.ELEMENT_NODE) return;\n\n        level++;\n\n        // Convert kids collection to non-live array, because we can remove empty text nodes when iterating\n        // If we use live collection, in that case we'll not iterate correctly\n        var kids = Array.prototype.slice.call(node.childNodes);\n        for (var i = 0; i < kids.length; i++) {\n            tidyNode(kids[i], level);\n        }\n    }\n\n    // Perform tidy on single text DOM node\n    function tidyTextNode(node, level) {\n        node.nodeValue = smartTrim(node.nodeValue);\n\n        // Remove empty text nodes\n        if (!node.nodeValue.length && node.parentElement) {\n            node.parentElement.removeChild(node);\n            return;\n        }\n\n        var prev = node.nodeValue;\n        regs.tag.lastIndex = 0;\n\n        while (true) {\n            // We might have removed previous tag from this text on previous iteration, so we reduce start regexp position\n            if (prev.length !== node.nodeValue.length) regs.tag.lastIndex -= prev.length - node.nodeValue.length;\n            prev = node.nodeValue;\n\n            var match = regs.tag.exec(node.nodeValue);\n            if (!match || (!match[2].length && match[1] !== '/')) break;\n\n            // Remove spaces in tag name, if they are not inside quotes (so not belonging to string literals)\n            match[2] = match[2].replace(regs.tagName, function(match) {\n                var first = match.substring(0, 1);\n                return first !== '\"' && first !== \"'\" ? match.replace(regs.spaces, '') : match;\n            });\n\n            match[1] !== '/' ?\n                handleOpenedTag(node, match, level) :\n                handleClosedTag(node, match, level);\n        }\n    }\n\n    // Handle opened mustache tag. Just mark it as opened and save basic data\n    function handleOpenedTag(node, match, level) {\n        var name = match[2];\n        var data = {\n            name: name,\n            type: match[1],\n            tag: match[0],\n            node: node,\n            index: match.index,\n            level: level,\n            openedKey: currentOpened.length\n        };\n\n        // Register tag as opened\n        if (typeof notClosed[name] === 'undefined') notClosed[name] = [];\n        if (step === '2:improve') {\n            data.improveKey = improve.length;\n            improve.push({opened: data});\n        }\n        notClosed[name].push(data);\n        currentOpened.push(name);\n\n        log('opened: ', name);\n    }\n\n    // Handle closed mustache tag\n    function handleClosedTag(node, match, level) {\n        var name = match[2];\n        var data = {\n            node: node,\n            tag: match[0],\n            index: match.index,\n            level: level\n        };\n\n        // Shorthand closed tag is used\n        if (!name.length && currentOpened.length) {\n            name = currentOpened[currentOpened.length - 1];\n        }\n\n        // Register tag as wrong closed (have no opened tag)\n        if (typeof notClosed[name] === 'undefined' || !name.length) {\n            wrongClosed.push({\n                closed: data\n            });\n\n            return;\n        }\n\n        // Tag is closed, so stop tracking it\n        var opened = notClosed[name].pop();\n        if (!notClosed[name].length) delete notClosed[name];\n\n        // Register tag as wrong closed (closed not in turn)\n        if (name !== currentOpened[currentOpened.length - 1]) {\n            log('remove wrong closed \"' + name + '\" from stack: ', currentOpened[opened.openedKey]);\n\n            currentOpened[opened.openedKey] = null;\n            wrongClosed.push({\n                opened: opened,\n                closed: data\n            });\n        } else {\n            // Tag is closed correctly, so launch tidy for it\n            do {\n                log('pop last element from opened stack: ', currentOpened[currentOpened.length - 1]);\n\n                currentOpened.pop();\n            } while (currentOpened[currentOpened.length - 1] === null);\n\n            log('closed: ', name);\n\n            if (step === '1:tidy') {\n                tidyTag({opened: opened, closed: data});\n            } else if (step === '2:improve') {\n                improve[opened.improveKey].closed = data;\n            } else if (step === '3:fix-tables') {\n                fixTableTags.run({opened: opened, closed: data});\n            }\n        }\n    }\n\n    // Perform tidy on mustache tag section\n    function tidyTag(data) {\n        log('======= start tidy: ', data.opened.tag, data.closed.tag);\n\n        var opened = data.opened;\n        var closed = data.closed;\n\n        if (opened.node !== closed.node) {\n            replaceEmptyNode.run(opened, closed, 'opened');\n            replaceEmptyNode.run(closed, opened, 'closed');\n        }\n\n        if (opened.node === closed.node) {\n            replaceEmptyNode.run(opened, closed, 'both');\n        }\n\n        if (opened.node.parentElement !== closed.node.parentElement) {\n            var relation = opened.node.parentElement.compareDocumentPosition(closed.node.parentElement);\n\n            if (relation & Node.DOCUMENT_POSITION_CONTAINS) {\n\n                // Closing tag is in ancestor node of opening tag\n                moveTags.handleCaseClosedIsAncestor(opened, closed);\n                if (opened.level !== closed.level) extendTags.extendTagForward(opened, closed);\n\n            } else if (relation & Node.DOCUMENT_POSITION_CONTAINED_BY) {\n\n                // Opening tag is in ancestor node of closing tag\n                moveTags.handleCaseOpenedIsAncestor(opened, closed);\n                if (opened.level !== closed.level) extendTags.extendTagBack(opened, closed);\n\n            } else {\n\n                // Tags are not in ancestor nodes of each other\n                moveTags.handleCaseSeparateTrees(opened, closed);\n                if (opened.node.parentElement !== closed.node.parentElement) extendTags.extendSeparatedTagParts(opened, closed);\n            }\n        }\n\n        moveTags.removePlaceholders();\n        removeEmptyTag(opened, closed);\n    }\n\n    // If tag section holds no data, remove it\n    function removeEmptyTag(opened, closed) {\n        var text = null;\n\n        // Tags are in same text node\n        if (opened.node === closed.node) {\n            text = opened.node.nodeValue;\n            var inner = text.substring(opened.index + opened.tag.length, closed.index);\n            if (!inner.trim().length) {\n                opened.node.nodeValue = text.substring(0, opened.index) + text.substring(closed.index + closed.tag.length);\n                opened.node = closed.node = null;\n            }\n\n            return;\n        }\n\n        var parent = opened.node.parentElement;\n        var empty = parent && opened.node.nextSibling === closed.node && endsWithTag(opened) && startsWithTag(closed);\n        if (!empty) return;\n\n        // Tags are in different text nodes\n        startsWithTag(opened) ?\n            parent.removeChild(opened.node) :\n            opened.node.nodeValue = opened.node.nodeValue.substring(0, opened.index);\n\n        endsWithTag(closed) ?\n            parent.removeChild(closed.node) :\n            closed.node.nodeValue = closed.node.nodeValue.substring(closed.index + closed.tag.length);\n\n        opened.node = closed.node = null;\n    }\n\n    // Trim text, leaving single start and ending spaces\n    function smartTrim(text) {\n        var hasStartSpace = !!regs.startSpaces.exec(text);\n        var hasEndSpace = !!regs.endSpaces.exec(text);\n\n        text = text.trim();\n        if (!text.length) return '';\n\n        if (hasStartSpace) text = ' ' + text;\n        if (hasEndSpace) text = text + ' ';\n\n        return text;\n    }\n}\n\n\n//# sourceURL=webpack://mustacheTidy/./index.js?");
+
+/***/ }),
+
+/***/ "./scripts/debug.js":
+/*!**************************!*\
+  !*** ./scripts/debug.js ***!
+  \**************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+eval("\n// Set dependencies\nvar env = __webpack_require__(/*! ./env */ \"./scripts/env.js\");\nvar domConfig = __webpack_require__(/*! ./dom-config */ \"./scripts/dom-config.js\");\nvar Node = domConfig.Node;\n\nmodule.exports = {\n    init: init,\n    log: log,\n    logResult: logResult,\n    hideInvalidTags: hideInvalidTags\n}\n\n// Static\nvar options = {};\n\n// Init module options\nfunction init(config) {\n    options = config;\n}\n\n// Logging\nfunction log() {\n    if (!options.debug) return;\n    if (env.isFrontEnd) return console.log.apply(console, arguments);\n\n    // Debug for text dom nodes in node.js\n    var args = Array.prototype.slice.apply(arguments);\n    for (var i = 0; i < args.length; i++) {\n        if (args[i] === null || typeof args[i] !== 'object' || typeof args[i].nodeType === 'undefined' || typeof args[i].node === 'undefined') continue;\n\n        if (args[i].node && typeof args[i].node === 'object' && args[i].node.nodeType === Node.TEXT_NODE) {\n            args[i].node = '\"' + args[i].node.nodeValue + '\"';\n        } else if (args[i].nodeType === Node.TEXT_NODE) {\n            args[i] = '\"' + args[i].nodeValue + '\"';\n        }\n    }\n\n    console.log.apply(console, args);\n}\n\n// Log whole processed document\nfunction logResult(root) {\n    if (!options.debug) return;\n    var result = logNode(root);\n\n    log('result html: ');\n    log(result);\n\n    function logNode(node, level) {\n        if (!level) level = 0;\n        if (node.nodeType === Node.TEXT_NODE) return levelIndent(level) + node.nodeValue + \"\\n\";\n        if (node.nodeType !== Node.ELEMENT_NODE) return '';\n\n        var indent = levelIndent(level);\n        var nodeName = node.nodeName.toLowerCase();\n        var output = indent + '<' + nodeName + '>' + \"\\n\";\n        var kids = node.childNodes;\n        level++;\n\n        for (var i = 0; i < kids.length; i++) {\n            output += logNode(kids[i], level);\n        }\n\n        return output + indent + '</' + nodeName + '>' + \"\\n\";\n    }\n\n    function levelIndent(level) {\n        return level ? repeatString(' ', level * 4) : '';\n    }\n}\n\n// Replace not closed or wrongly closed tags with placeholders, to see that they were not processed\nfunction hideInvalidTags(notClosed, wrongClosed) {\n    if (!options.debug) return;\n\n    var data = null;\n\n    for (var name in notClosed) {\n        data = notClosed[name];\n\n        for (var i = 0; i < data.length; i++) {\n            hideTag(data[i]);\n        }\n    }\n\n    for (var i = 0; i < wrongClosed.length; i++) {\n        data = wrongClosed[i];\n\n        hideTag(data.closed);\n        if (data.opened) hideTag(data.opened);\n    }\n\n    // Do replace\n    function hideTag(data) {\n        var node = data.node;\n        var text = node.nodeValue;\n        var index = data.index;\n        var length = data.tag.length;\n\n        node.nodeValue = text.substring(0, index + 1) + '#' + text.substr(index + 2, length - 4) + '#' + text.substring(index - 1 + length);\n\n        log('replace ->', text, '<- with ->', node.nodeValue);\n    }\n}\n\n// Repeat some string 'count' times\nfunction repeatString(string, count) {\n    return Array(count*1 + 1).join(string);\n}\n\n\n//# sourceURL=webpack://mustacheTidy/./scripts/debug.js?");
+
+/***/ }),
+
+/***/ "./scripts/dom-config.js":
+/*!*******************************!*\
+  !*** ./scripts/dom-config.js ***!
+  \*******************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+eval("\nvar env = __webpack_require__(/*! ./env */ \"./scripts/env.js\");\n\n// Set dependencies\nif (!env.isFrontEnd) {\n    var jsdom = __webpack_require__(/*! jsdom */ \"jsdom\");\n    jsdom.defaultDocumentFeatures = {\n        FetchExternalResources: false,\n        ProcessExternalResources: false\n    };\n\n    module.exports = {\n        jsdom: jsdom.JSDOM,\n        Node: (new jsdom.JSDOM(\"<br/>\")).window.Node\n    }\n} else {\n    module.exports = {\n        jsdom: null,\n        Node: Node\n    }\n}\n\n\n//# sourceURL=webpack://mustacheTidy/./scripts/dom-config.js?");
+
+/***/ }),
+
+/***/ "./scripts/env.js":
+/*!************************!*\
+  !*** ./scripts/env.js ***!
+  \************************/
+/***/ ((module) => {
+
+eval("\n// Determine if we are in browser or in node.js\nmodule.exports = {\n    isFrontEnd: typeof window !== 'undefined'\n}\n\n\n//# sourceURL=webpack://mustacheTidy/./scripts/env.js?");
+
+/***/ }),
+
+/***/ "./scripts/extend-tags.js":
+/*!********************************!*\
+  !*** ./scripts/extend-tags.js ***!
+  \********************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+eval("\n// Set dependencies\nvar domConfig = __webpack_require__(/*! ./dom-config */ \"./scripts/dom-config.js\");\nvar utils = __webpack_require__(/*! ./utils */ \"./scripts/utils.js\");\nvar debug = __webpack_require__(/*! ./debug */ \"./scripts/debug.js\");\n\n// Module variables\nvar updateTextNodeData = utils.updateTextNodeData;\nvar createTextNode = utils.createTextNode;\nvar startsWithTag = utils.startsWithTag;\nvar endsWithTag = utils.endsWithTag;\nvar Node = domConfig.Node;\nvar log = debug.log;\n\nmodule.exports = {\n    init: init,\n    extendSeparatedTagParts: extendSeparatedTagParts,\n    extendTagForward: extendTagForward,\n    extendTagBack: extendTagBack\n};\n\n// Init module options\nfunction init(config) {\n    debug.init(config);\n    utils.init(config);\n}\n\n// Extend tag, if it's parts are in separate node trees\nfunction extendSeparatedTagParts(opened, closed) {\n    var relation = opened.node.parentElement.compareDocumentPosition(closed.node.parentElement);\n\n    if (relation & Node.DOCUMENT_POSITION_CONTAINS) {\n        extendTagForward(opened, closed, true);\n    } else if (relation & Node.DOCUMENT_POSITION_CONTAINED_BY) {\n        extendTagBack(opened, closed, true);\n    } else {\n        // Tags are still in different node trees, so we extend both of them towards each other, to reach a common parent element\n\n        if (opened.level >= closed.level) {\n            log('-------------- extend tag both ways starting from closed');\n            extendTagBack(opened, closed, true);\n            extendTagForward(opened, closed);\n        } else {\n            log('-------------- extend tag both ways starting from opened');\n            extendTagForward(opened, closed, true);\n            extendTagBack(opened, closed);\n        }\n    }\n}\n\n// Correctly surround by tag all data that's nested inside it, to avoid partial nodes removal.\n// Moving up the node tree, from opened to closed\n// If tags are created in tables outside table cells, mark tags as temporary\nfunction extendTagForward(opened, closed, tillCommonAncestor) {\n    log('-------------- extend tag forward');\n\n    var level = opened.level;\n    var parent = opened.node;\n    var newClosed = null;\n\n    if (opened.node.nextSibling || !endsWithTag(opened)) {\n        newClosed = createTextNode(closed.tag);\n        opened.node.parentElement.appendChild(newClosed);\n    }\n\n    while (true) {\n        level--;\n        parent = parent.parentElement;\n\n        if (!parent.nextSibling) continue;\n\n        updateTextNodeData(opened, level);\n        parent.parentElement.insertBefore(opened.node, parent.nextSibling);\n        if (tillCommonAncestor ? parent.parentElement.contains(closed.node) : level <= closed.level) break;\n\n        newClosed = createTextNode(closed.tag);\n        parent.parentElement.appendChild(newClosed);\n    }\n}\n\n// Correctly surround by tag all data that's nested inside it, to avoid partial nodes removal.\n// Moving up the node tree, from closed to opened\n// If tags are created in tables outside table cells, mark tags as temporary\nfunction extendTagBack(opened, closed, tillCommonAncestor) {\n    log('-------------- extend tag back');\n\n    var level = closed.level;\n    var parent = closed.node.parentElement;\n    var newOpened = null;\n\n    if (closed.node.previousSibling || !startsWithTag(closed)) {\n        newOpened = createTextNode(opened.tag);\n        parent.insertBefore(newOpened, parent.firstChild);\n    }\n\n    parent = closed.node;\n\n    while (true) {\n        level--;\n        parent = parent.parentElement;\n\n        if (!parent.previousSibling) continue;\n\n        updateTextNodeData(closed, level);\n        parent.parentElement.insertBefore(closed.node, parent);\n        if (tillCommonAncestor ? parent.parentElement.contains(opened.node) : level <= opened.level) break;\n\n        newOpened = createTextNode(opened.tag);\n        parent.parentElement.insertBefore(newOpened, parent.parentElement.firstChild);\n    }\n}\n\n\n//# sourceURL=webpack://mustacheTidy/./scripts/extend-tags.js?");
+
+/***/ }),
+
+/***/ "./scripts/fix-table-tags.js":
+/*!***********************************!*\
+  !*** ./scripts/fix-table-tags.js ***!
+  \***********************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+eval("\n// Set dependencies\nvar domConfig = __webpack_require__(/*! ./dom-config */ \"./scripts/dom-config.js\");\nvar utils = __webpack_require__(/*! ./utils */ \"./scripts/utils.js\");\nvar debug = __webpack_require__(/*! ./debug */ \"./scripts/debug.js\");\n\n// Module variables\nvar startsWithTag = utils.startsWithTag;\nvar endsWithTag = utils.endsWithTag;\nvar repeatString = utils.repeatString;\nvar createTextNode = utils.createTextNode;\nvar Node = domConfig.Node;\nvar log = debug.log;\nvar tableContainers = {'TABLE': 1, 'THEAD': 1, 'TBODY': 1, 'TR': 1};\nvar tableCells = {'TD': 1, 'TH': 1};\n\nmodule.exports = {\n    init: init,\n    run: run,\n    tableCells: tableCells\n};\n\n// Init module options\nfunction init(config) {\n    debug.init(config);\n    utils.init(config);\n}\n\n// Turn tmp tags, created in tables outside table cells, into correct tags inside cells\nfunction run(tag) {\n    // Section was removed or is not closed, or is correct\n    if (!tag.opened.node || !tag.closed || !isTmpTag(tag.opened)) return;\n    log('-- fix table tag: ', tag);\n\n    extendTmpTag(tag.opened, tag.closed);\n}\n\n// Extand tmp table tag to table cells, that are contained inside this tag\nfunction extendTmpTag(opened, closed) {\n    var next = opened.node;\n\n    while (true) {\n        next = next.nextSibling;\n        if (next === closed.node) break;\n\n        processNode(next);\n    }\n\n    startsWithTag(opened) && endsWithTag(opened) ?\n        opened.node.parentElement.removeChild(opened.node) :\n        cutNode(opened);\n\n    startsWithTag(closed) && endsWithTag(closed) ?\n        closed.node.parentElement.removeChild(closed.node) :\n        cutNode(closed);\n\n    function processNode(node) {\n        if (node.nodeType !== Node.ELEMENT_NODE || !node.firstChild) return;\n\n        if (!tableCells[node.nodeName]) {\n            for (var i = 0; i < node.childNodes.length; i++) {\n                processNode(node.childNodes[i]);\n            }\n\n            return;\n        }\n\n        node.insertBefore(createTextNode(opened.tag), node.firstChild);\n        node.appendChild(createTextNode(closed.tag));\n    }\n}\n\n// Determine if tag node belongs to table nodes area, where we can create only temporary tags\nfunction isTmpTag(data) {\n    return data.node.parentElement && !!tableContainers[data.node.parentElement.nodeName];\n}\n\n// Cut tag from it's containing text node, if this text node contains another tag text\n// Tag is replaced by whitespaces, to not mess with indexes of other possible tags in text\nfunction cutNode(data) {\n    var text = data.node.nodeValue;\n    data.node.nodeValue = text.substring(0, data.index) + repeatString(' ', data.tag.length) + text.substring(data.index + data.tag.length);\n}\n\n\n//# sourceURL=webpack://mustacheTidy/./scripts/fix-table-tags.js?");
+
+/***/ }),
+
+/***/ "./scripts/improve-tags.js":
+/*!*********************************!*\
+  !*** ./scripts/improve-tags.js ***!
+  \*********************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+eval("\n// Set dependencies\nvar domConfig = __webpack_require__(/*! ./dom-config */ \"./scripts/dom-config.js\");\nvar utils = __webpack_require__(/*! ./utils */ \"./scripts/utils.js\");\nvar debug = __webpack_require__(/*! ./debug */ \"./scripts/debug.js\");\n\n// Module variables\nvar Node = domConfig.Node;\nvar updateTextNodeData = utils.updateTextNodeData;\nvar startsWithTag = utils.startsWithTag;\nvar endsWithTag = utils.endsWithTag;\nvar repeatString = utils.repeatString;\nvar log = debug.log;\nvar root = null;\nvar tags = [];\nvar tagsByLevel = {};\nvar clearSpaces = [];\nvar spacesReg = null;\n\nmodule.exports = {\n    init: init,\n    run: run\n};\n\n// Init module options\nfunction init(config) {\n    debug.init(config);\n    utils.init(config);\n\n    root = config.root;\n    spacesReg = config.regs.spaces;\n    tagsByLevel = {};\n    clearSpaces = [];\n}\n\n// Perform improve on already fixed tags: push out from containing nodes and merging same tags sections\nfunction run(improveTags) {\n    tags = improveTags;\n\n    for (var i = 0; i < tags.length; i++) {\n        var tag = tags[i];\n        log('-- improve tag: ', tag);\n\n        // Section was removed or is not closed\n        if (!tag.opened.node || !tag.closed) continue;\n\n        var prevSame = getPrevSameTag(tag);\n        if (prevSame) {\n            // Tag is merged with previous same tag, and then we perform improve on result tag\n            var newIdx = mergeTags(tag, prevSame);\n            i = newIdx - 1;\n            continue;\n        }\n\n        // Tag was moved up to another level. Repeat cycle for it again\n        if (riseTag(tag)) i--;\n    }\n\n    // When merging tags sections, we replaced sibling tags with spaces. Now we remove those spaces\n    for (var i = 0; i < clearSpaces.length; i++) {\n        if (!clearSpaces[i]) continue;\n\n        var node = clearSpaces[i];\n        var text = node.nodeValue;\n\n        text = text.replace(spacesReg, ' ').trim();\n        if (node.startsWithSpace) text = ' ' + text;\n        if (node.endsWithSpace) text = text + ' ';\n\n        node.nodeValue = text;\n    }\n}\n\n// Find previous sibling tag with same name for current tag\nfunction getPrevSameTag(tag) {\n    var levelTags = tagsByLevel[tag.opened.level];\n    if (!levelTags || !levelTags.length) return null;\n\n    var idx = levelTags.length - 1;\n\n    // Get previous sibling tag on that level\n    do {\n        var prev = levelTags[idx];\n        idx--;\n    } while ((!prev.opened.node || prev === tag) && idx >= 0);\n\n    // Check if it has same name as current tag\n    var isSame = prev.opened.node && prev.opened.name === tag.opened.name && prev.opened.type === tag.opened.type;\n    if (!isSame) return null;\n\n    // Check if there is no data between tags\n    var canMerge = false;\n    if (tag.opened.node.previousSibling === prev.closed.node) {\n        canMerge = startsWithTag(tag.opened) && endsWithTag(prev.closed);\n    } else if (tag.opened.node === prev.closed.node) {\n        var prevClosed = prev.closed.node.nodeValue.substring(prev.closed.index, tag.opened.index);\n        canMerge = prevClosed.trim().length === prev.closed.tag.length;\n    }\n\n    return canMerge ? prev : null;\n}\n\n// Merge tag with it's previous same name sibling\nfunction mergeTags(tag, prev) {\n    log('-- merge with:', prev);\n\n    startsWithTag(tag.opened) && endsWithTag(tag.opened) ?\n        tag.opened.node.parentElement.removeChild(tag.opened.node) :\n        cutNode(tag.opened, true);\n\n    startsWithTag(prev.closed) && endsWithTag(prev.closed) ?\n        prev.closed.node.parentElement.removeChild(prev.closed.node) :\n        cutNode(prev.closed, true);\n\n    for (var name in tag.closed) {\n        prev.closed[name] = tag.closed[name];\n    }\n\n    tag.opened.node = null;\n    tag.closed.node = null;\n\n    return prev.opened.improveKey;\n}\n\n// Rise tag up from it's containing node, if all node's data is inside this tag\nfunction riseTag(tag) {\n    var level = tag.opened.level;\n\n    while (canRise(tag)) {\n        rise(tag);\n    }\n\n    var newLevel = tag.opened.level;\n    var rised = level !== newLevel;\n    if (!tagsByLevel[newLevel]) tagsByLevel[newLevel] = [];\n\n    if (rised) {\n        // Mark that tag was removed from level\n        var oldLevelTags = tagsByLevel[level];\n        if (oldLevelTags && oldLevelTags.length) {\n            var last = oldLevelTags[oldLevelTags.length - 1];\n            if (last === tag) oldLevelTags.pop();\n        }\n\n        // Mark that tag was added to new level\n        tagsByLevel[newLevel].push(tag);\n    } else {\n        // Add tag to it's current level, if it is processed first time\n        var length = tagsByLevel[level].length;\n        var last = length ? tagsByLevel[level][length - 1] : null;\n        if (!last || last !== tag) tagsByLevel[level].push(tag);\n    }\n\n    return rised;\n}\n\n// Perform rise\nfunction rise(tag) {\n    var opened = tag.opened;\n    var closed = tag.closed;\n    var parent = opened.node.parentElement;\n    var newParent = parent.parentElement;\n\n    // Rise opened tag\n    if (!endsWithTag(opened)) cutNode(opened);\n    newParent.insertBefore(opened.node, parent);\n\n    // Rise closed tag\n    if (!startsWithTag(closed)) cutNode(closed);\n    parent.nextSibling ?\n        newParent.insertBefore(closed.node, parent.nextSibling) :\n        newParent.appendChild(closed.node);\n\n    opened.level--;\n    closed.level--;\n}\n\n// Determine if we need to rise tag section up from it's parent node\nfunction canRise(tag) {\n    var opened = tag.opened;\n    var closed = tag.closed;\n    var parent = opened.node.parentElement;\n\n    return parent &&\n        parent !== root &&\n        parent.parentElement &&\n        startsWithTag(opened) &&\n        endsWithTag(closed) &&\n        !opened.node.previousSibling &&\n        !closed.node.nextSibling;\n}\n\n// Cut tag from it's containing text node, if this text node contains another text\n// Tag is replaced by spaces, to not mess with indexes of other possible tags in text\nfunction cutNode(data, remove) {\n    var node = data.node;\n    var text = node.nodeValue;\n\n    if (typeof node.startsWithSpace === 'undefined') {\n        node.startsWithSpace = !text.substring(0, 1).trim().length;\n    }\n\n    if (typeof node.endsWithSpace === 'undefined') {\n        node.endsWithSpace = !text.substr(-1).trim().length;\n    }\n\n    node.nodeValue = text.substring(0, data.index) + repeatString(' ', data.tag.length) + text.substring(data.index + data.tag.length);\n    clearSpaces.push(data.node);\n\n    if (!remove) updateTextNodeData(data);\n}\n\n\n//# sourceURL=webpack://mustacheTidy/./scripts/improve-tags.js?");
+
+/***/ }),
+
+/***/ "./scripts/move-tags.js":
+/*!******************************!*\
+  !*** ./scripts/move-tags.js ***!
+  \******************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+eval("\n// Set dependencies\nvar domConfig = __webpack_require__(/*! ./dom-config */ \"./scripts/dom-config.js\");\nvar utils = __webpack_require__(/*! ./utils */ \"./scripts/utils.js\");\nvar debug = __webpack_require__(/*! ./debug */ \"./scripts/debug.js\");\n\n// Module variables\nvar updateTextNodeData = utils.updateTextNodeData;\nvar startsWithTag = utils.startsWithTag;\nvar endsWithTag = utils.endsWithTag;\nvar isDataElement = utils.isDataElement;\nvar isFullDataElement = utils.isFullDataElement;\nvar repeatString = utils.repeatString;\nvar Node = domConfig.Node;\nvar log = debug.log;\nvar nodesWithPlaceholders = [];\n\nmodule.exports = {\n    init: init,\n    handleCaseClosedIsAncestor: handleCaseClosedIsAncestor,\n    handleCaseOpenedIsAncestor: handleCaseOpenedIsAncestor,\n    handleCaseSeparateTrees: handleCaseSeparateTrees,\n    removePlaceholders: removePlaceholders\n};\n\n// Init module options\nfunction init(config) {\n    debug.init(config);\n    utils.init(config);\n\n    nodesWithPlaceholders = [];\n}\n\n// Move tags in case when closing tag is in ancestor node of opening\n// If tags are moved inside table outside table cells, mark tags as temporary\nfunction handleCaseClosedIsAncestor(opened, closed) {\n    log('closing tag is in ancestor node of opening tag');\n\n    // Try to move opening tag up\n    if (startsWithTag(opened) && !isDataElement(opened.node.previousSibling)) {\n        log('--------------- move opened tag up outside');\n        moveTagUpBackword(opened, closed.level);\n    } else if (endsWithTag(opened) && !isDataElement(opened.node.nextSibling)) {\n        log('--------------- move opened tag up inside');\n        moveTagUpForward(opened, closed.level);\n    }\n\n    // If still necessary, try to move closing tag down\n    if (opened.level !== closed.level && startsWithTag(closed) && closed.node.previousSibling.contains(opened.node)) {\n        log('--------------- move closed tag down inside');\n        moveTagDownBackword(closed, opened.level, opened.node);\n    }\n}\n\n// Move tags in case when opening tag is in ancestor node of closing\n// If tags are moved inside table outside table cells, mark tags as temporary\nfunction handleCaseOpenedIsAncestor(opened, closed) {\n    log('closed tag is contained inside open');\n\n    // Try to move closing tag up\n    if (endsWithTag(closed) && !isFullDataElement(closed.node.nextSibling)) {\n        log('--------------- move closed tag up outside');\n        moveTagUpForward(closed, opened.level);\n    } else if (startsWithTag(closed) && !isDataElement(closed.node.previousSibling)) {\n        log('--------------- move closed tag up inside');\n        moveTagUpBackword(closed, opened.level);\n    }\n\n    // If still necessary, try to move opening tag down\n    if (opened.level !== closed.level && endsWithTag(opened) && opened.node.nextSibling.contains(closed.node)) {\n        log('--------------- move opened tag down inside');\n        moveTagDownForward(opened, closed.level, closed.node);\n    }\n}\n\n// Move tags in case when they are not in ancestor nodes of each other\n// In here we first try to move tags to level of each other, and than - to common parent node\n// For this we pass additional parameter to 'moveTagUp...' functions\n// If tags are moved inside table outside table cells, mark tags as temporary\nfunction handleCaseSeparateTrees(opened, closed) {\n    log('opening and closing tags are not in ancestor nodes of each other');\n\n    // Try to move opening tag up\n    if (startsWithTag(opened) && !isDataElement(opened.node.previousSibling)) {\n        log('--------------- move opened tag up outside');\n        moveTagUpBackword(opened, closed.level, closed.node);\n    } else if (endsWithTag(opened) && !isDataElement(opened.node.nextSibling)) {\n        log('--------------- move opened tag up inside');\n        moveTagUpForward(opened, closed.level, closed.node);\n    }\n\n    // Try to move closing tag up\n    if (endsWithTag(closed) && !isFullDataElement(closed.node.nextSibling)) {\n        log('--------------- move closed tag up outside');\n        moveTagUpForward(closed, opened.level, opened.node);\n    } else if (startsWithTag(closed) && !isDataElement(closed.node.previousSibling)) {\n        log('--------------- move closed tag up inside');\n        moveTagUpBackword(closed, opened.level, opened.node);\n    }\n}\n\n// Move tag down along nodes chain, that contain another part of tag, towards end of document\nfunction moveTagDownForward(data, toLevel, toNode) {\n    var descendant = data.node.nextSibling;\n\n    while (data.level < toLevel && descendant.contains(toNode)) {\n        data.level++;\n        descendant = descendant.firstChild;\n    }\n\n    if (data.node.nodeValue.length !== data.tag.length) {\n        replaceMovedTag(data);\n        updateTextNodeData(data);\n    }\n\n    var parent = descendant.parentElement;\n    parent.insertBefore(data.node, parent.firstChild);\n}\n\n// Move tag down along nodes chain, that contain another part of tag, towards beginning of document\nfunction moveTagDownBackword(data, toLevel, toNode) {\n    var descendant = data.node.previousSibling;\n\n    while (data.level < toLevel && descendant.contains(toNode)) {\n        data.level++;\n        descendant = descendant.lastChild;\n    }\n\n    if (data.node.nodeValue.length !== data.tag.length) {\n        replaceMovedTag(data);\n        updateTextNodeData(data);\n    }\n\n    descendant.parentElement.appendChild(data.node);\n}\n\n// Move tag node up the node tree, backwords\nfunction moveTagUpBackword(data, toLevel, toNode) {\n    var ancestor = data.node;\n\n    do {\n        data.level--;\n        ancestor = ancestor.parentElement;\n    } while ((data.level > toLevel || (toNode && !ancestor.parentElement.contains(toNode))) && !isDataElement(ancestor.previousSibling));\n\n    if (data.node.nodeValue.length !== data.tag.length) {\n        replaceMovedTag(data);\n        updateTextNodeData(data);\n    }\n\n    ancestor.parentElement.insertBefore(data.node, ancestor);\n}\n\n// Move tag node up the node tree, forward\nfunction moveTagUpForward(data, toLevel, toNode) {\n    var ancestor = data.node;\n\n    do {\n        data.level--;\n        ancestor = ancestor.parentElement;\n    } while ((data.level > toLevel || (toNode && !ancestor.parentElement.contains(toNode))) && !isFullDataElement(ancestor.nextSibling));\n\n    if (data.node.nodeValue.length !== data.tag.length) {\n        replaceMovedTag(data);\n        updateTextNodeData(data);\n    }\n\n    var grandpa = ancestor.parentElement;\n    var next = ancestor.nextSibling;\n    next ? grandpa.insertBefore(data.node, next) : grandpa.appendChild(data.node);\n}\n\n// Remove placeholders after moving tags\nfunction removePlaceholders() {\n    var data = null;\n    while (data = nodesWithPlaceholders.pop()) {\n        data.node.nodeValue = data.node.nodeValue.replace(data.placeholder, '');\n    }\n}\n\n// Replace moved tag with placeholder, to not change text node content length\nfunction replaceMovedTag(data) {\n    var text = data.node.nodeValue;\n    var size = data.tag.length;\n    var placeholder = '{#' + repeatString('_', size - 4) + '#}';\n\n    data.node.nodeValue = text.substring(0, data.index) + placeholder + text.substring(data.index + size);\n    nodesWithPlaceholders.push({node: data.node, placeholder: placeholder});\n}\n\n\n//# sourceURL=webpack://mustacheTidy/./scripts/move-tags.js?");
+
+/***/ }),
+
+/***/ "./scripts/replace-empty-node.js":
+/*!***************************************!*\
+  !*** ./scripts/replace-empty-node.js ***!
+  \***************************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+eval("\n// Set dependencies\nvar domConfig = __webpack_require__(/*! ./dom-config */ \"./scripts/dom-config.js\");\nvar debug = __webpack_require__(/*! ./debug */ \"./scripts/debug.js\");\n\n// Static variable\nvar Node = domConfig.Node;\nvar log = debug.log;\nvar root = null;\nvar replacableNodes = {'P': 1, 'DIV': 1, 'SPAN': 1, 'I': 1, 'EM': 1, 'STRONG': 1, 'LI': 1};\n\nmodule.exports = {\n    init: init,\n    run: replaceEmptyNode\n};\n\n// Init module options\nfunction init(config) {\n    debug.init(config);\n\n    root = config.root;\n}\n\n// Replace parent node with tag, if tag is empty and node does not contain other data\nfunction replaceEmptyNode(data, coupleData, mode) {\n    var node = data.node;\n    var parent = node.parentElement;\n    var tagText = mode === 'both' ? data.tag + coupleData.tag : data.tag;\n\n    // Simple check\n    var skip =\n        !parent ||\n        parent === root ||\n        !parent.parentElement ||\n        parent.childNodes.length > 1 ||\n        !replacableNodes[parent.nodeName];\n\n    if (skip) return;\n\n    var empty = tagText === node.nodeValue.trim();\n\n    // Check if tag text node contains only tag(s) and spaces\n    if (!empty && mode === 'both') {\n        var text = node.nodeValue;\n        var inner = text.substring(0, data.index) +\n            text.substring(data.index + data.tag.length, coupleData.index) +\n            text.substring(coupleData.index + coupleData.tag.length);\n\n        empty = !inner.trim().length;\n    }\n\n    if (!empty) return;\n\n    parent.parentElement.replaceChild(node, parent);\n    data.level--;\n\n    // There are element nodes in new parent, so it's definitely not empty. Do not perform recursive replace\n    if (node.parentElement.children.length) return;\n\n    // Join moved node with possible sibling empty text nodes in new parent element\n    // Node.normalize() can not be used here, because it can destroy current references to text nodes with tags\n    var tagsMerged = mergeTextNodes(data, coupleData, mode);\n    mode = tagsMerged ? 'both' : mode;\n\n    replaceEmptyNode(data, coupleData, mode);\n}\n\n// Remove all empty text nodes, that are siblings of given text node\n// Also if other tag node is now sibling, merge it\n// When merging, update references to tags nodes, if they are changed\nfunction mergeTextNodes(data, coupleData, mode) {\n    var prev = data.node;\n    var next = data.node;\n    var tagsMerged = mode === 'both' ? true : false;\n    var remove = [];\n\n    while (true) {\n        prev = prev.previousSibling;\n        if (!prev || prev.nodeType !== Node.TEXT_NODE) break;\n\n        if (prev === coupleData.node) {\n            tagsMerged = true;\n            data.index += prev.nodeValue.length;\n            data.node.nodeValue = prev.nodeValue + data.node.nodeValue;\n            coupleData.node = data.node;\n        } else if (prev.nodeValue.trim().length) {\n            break;\n        }\n\n        remove.push(prev);\n    }\n\n    while (true) {\n        next = next.nextSibling;\n        if (!next || next.nodeType !== Node.TEXT_NODE) break;\n\n        if (next === coupleData.node) {\n            tagsMerged = true;\n            coupleData.index += data.node.nodeValue.length;\n            data.node.nodeValue = data.node.nodeValue + next.nodeValue;\n            coupleData.node = data.node;\n        } else if (next.nodeValue.trim().length) {\n            break;\n        }\n\n        remove.push(next);\n    }\n\n    var parent = data.node.parentElement;\n    for (var i = 0; i < remove.length; i++) {\n        parent.removeChild(remove[i]);\n    }\n\n    return tagsMerged;\n}\n\n\n//# sourceURL=webpack://mustacheTidy/./scripts/replace-empty-node.js?");
+
+/***/ }),
+
+/***/ "./scripts/utils.js":
+/*!**************************!*\
+  !*** ./scripts/utils.js ***!
+  \**************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+eval("\n// Set dependencies\nvar domConfig = __webpack_require__(/*! ./dom-config */ \"./scripts/dom-config.js\");\nvar debug = __webpack_require__(/*! ./debug */ \"./scripts/debug.js\");\n\n//Module variables\nvar doc = null;\nvar log = debug.log;\nvar Node = domConfig.Node;\n\nmodule.exports = {\n    init: init,\n    repeatString: repeatString,\n    updateTextNodeData: updateTextNodeData,\n    createTextNode: createTextNode,\n    startsWithTag: startsWithTag,\n    endsWithTag: endsWithTag,\n    isDataElement: isDataElement,\n    isFullDataElement: isFullDataElement\n}\n\n// Init module options\nfunction init(config) {\n    debug.init(config);\n    doc = config.doc;\n}\n\n// Repeat some string 'count' times\nfunction repeatString(string, count) {\n    return Array(count*1 + 1).join(string);\n}\n\n// Create text node with data based on existing tag node\nfunction updateTextNodeData(data, level) {\n    data.index = 0;\n    data.node = createTextNode(data.tag);\n\n    if (typeof level !== 'undefined') data.level = level;\n}\n\n// Create text node\nfunction createTextNode(text) {\n    return doc.createTextNode(text);\n}\n\n// Determine if text node starts with tag\nfunction startsWithTag(data) {\n    return data.index === 0 ||\n        !data.node.nodeValue.substring(0, data.index).trim().length;\n}\n\n// Determine if text node ends with tag\nfunction endsWithTag(data) {\n    var text = data.node.nodeValue;\n    var tagEnd = data.index + data.tag.length;\n\n    return text.length === tagEnd || !text.substring(tagEnd).trim().length;\n}\n\n// Determine if element is non-skippabe by tag, e.g. it is relevant for text information\nfunction isDataElement(node) {\n    return node && node.nodeType !== Node.COMMENT_NODE;\n}\n\n// Determine if element is non-skippabe by tag, e.g. it is relevant for text information\n// This function is used in places where empty text nodes were not deleted\nfunction isFullDataElement(node) {\n    if (!isDataElement(node)) return false;\n\n    return node.nodeType === Node.TEXT_NODE && !node.nodeValue.trim().length ?\n        (node.nextSibling ? isFullDataElement(node.nextSibling) : false) :\n        true;\n}\n\n\n//# sourceURL=webpack://mustacheTidy/./scripts/utils.js?");
+
+/***/ }),
+
+/***/ "./scripts sync recursive ^\\.\\/.*$":
+/*!********************************!*\
+  !*** ./scripts/ sync ^\.\/.*$ ***!
+  \********************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+eval("var map = {\n\t\"./debug\": \"./scripts/debug.js\",\n\t\"./debug.js\": \"./scripts/debug.js\",\n\t\"./dom-config\": \"./scripts/dom-config.js\",\n\t\"./dom-config.js\": \"./scripts/dom-config.js\",\n\t\"./env\": \"./scripts/env.js\",\n\t\"./env.js\": \"./scripts/env.js\",\n\t\"./extend-tags\": \"./scripts/extend-tags.js\",\n\t\"./extend-tags.js\": \"./scripts/extend-tags.js\",\n\t\"./fix-table-tags\": \"./scripts/fix-table-tags.js\",\n\t\"./fix-table-tags.js\": \"./scripts/fix-table-tags.js\",\n\t\"./improve-tags\": \"./scripts/improve-tags.js\",\n\t\"./improve-tags.js\": \"./scripts/improve-tags.js\",\n\t\"./move-tags\": \"./scripts/move-tags.js\",\n\t\"./move-tags.js\": \"./scripts/move-tags.js\",\n\t\"./replace-empty-node\": \"./scripts/replace-empty-node.js\",\n\t\"./replace-empty-node.js\": \"./scripts/replace-empty-node.js\",\n\t\"./utils\": \"./scripts/utils.js\",\n\t\"./utils.js\": \"./scripts/utils.js\"\n};\n\n\nfunction webpackContext(req) {\n\tvar id = webpackContextResolve(req);\n\treturn __webpack_require__(id);\n}\nfunction webpackContextResolve(req) {\n\tif(!__webpack_require__.o(map, req)) {\n\t\tvar e = new Error(\"Cannot find module '\" + req + \"'\");\n\t\te.code = 'MODULE_NOT_FOUND';\n\t\tthrow e;\n\t}\n\treturn map[req];\n}\nwebpackContext.keys = function webpackContextKeys() {\n\treturn Object.keys(map);\n};\nwebpackContext.resolve = webpackContextResolve;\nmodule.exports = webpackContext;\nwebpackContext.id = \"./scripts sync recursive ^\\\\.\\\\/.*$\";\n\n//# sourceURL=webpack://mustacheTidy/./scripts/_sync_^\\.\\/.*$?");
+
+/***/ }),
+
+/***/ "jsdom":
+/*!************************!*\
+  !*** external "jsdom" ***!
+  \************************/
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("jsdom");;
+
+/***/ })
+
+/******/ 	});
+/************************************************************************/
+/******/ 	// The module cache
+/******/ 	var __webpack_module_cache__ = {};
+/******/ 	
 /******/ 	// The require function
 /******/ 	function __webpack_require__(moduleId) {
-
 /******/ 		// Check if module is in cache
-/******/ 		if(installedModules[moduleId])
-/******/ 			return installedModules[moduleId].exports;
-
+/******/ 		var cachedModule = __webpack_module_cache__[moduleId];
+/******/ 		if (cachedModule !== undefined) {
+/******/ 			return cachedModule.exports;
+/******/ 		}
 /******/ 		// Create a new module (and put it into the cache)
-/******/ 		var module = installedModules[moduleId] = {
-/******/ 			i: moduleId,
-/******/ 			l: false,
+/******/ 		var module = __webpack_module_cache__[moduleId] = {
+/******/ 			// no module.id needed
+/******/ 			// no module.loaded needed
 /******/ 			exports: {}
 /******/ 		};
-
+/******/ 	
 /******/ 		// Execute the module function
-/******/ 		modules[moduleId].call(module.exports, module, module.exports, __webpack_require__);
-
-/******/ 		// Flag the module as loaded
-/******/ 		module.l = true;
-
+/******/ 		__webpack_modules__[moduleId](module, module.exports, __webpack_require__);
+/******/ 	
 /******/ 		// Return the exports of the module
 /******/ 		return module.exports;
 /******/ 	}
-
-
-/******/ 	// expose the modules object (__webpack_modules__)
-/******/ 	__webpack_require__.m = modules;
-
-/******/ 	// expose the module cache
-/******/ 	__webpack_require__.c = installedModules;
-
-/******/ 	// identity function for calling harmony imports with the correct context
-/******/ 	__webpack_require__.i = function(value) { return value; };
-
-/******/ 	// define getter function for harmony exports
-/******/ 	__webpack_require__.d = function(exports, name, getter) {
-/******/ 		if(!__webpack_require__.o(exports, name)) {
-/******/ 			Object.defineProperty(exports, name, {
-/******/ 				configurable: false,
-/******/ 				enumerable: true,
-/******/ 				get: getter
-/******/ 			});
-/******/ 		}
-/******/ 	};
-
-/******/ 	// getDefaultExport function for compatibility with non-harmony modules
-/******/ 	__webpack_require__.n = function(module) {
-/******/ 		var getter = module && module.__esModule ?
-/******/ 			function getDefault() { return module['default']; } :
-/******/ 			function getModuleExports() { return module; };
-/******/ 		__webpack_require__.d(getter, 'a', getter);
-/******/ 		return getter;
-/******/ 	};
-
-/******/ 	// Object.prototype.hasOwnProperty.call
-/******/ 	__webpack_require__.o = function(object, property) { return Object.prototype.hasOwnProperty.call(object, property); };
-
-/******/ 	// __webpack_public_path__
-/******/ 	__webpack_require__.p = "";
-
-/******/ 	// Load entry module and return exports
-/******/ 	return __webpack_require__(__webpack_require__.s = 10);
-/******/ })
+/******/ 	
 /************************************************************************/
-/******/ ([
-/* 0 */
-/***/ (function(module, exports, __webpack_require__) {
-
-
-var env = __webpack_require__(3);
-
-// Set dependencies
-if (!env.isFrontEnd) {
-    var jsdom = __webpack_require__(!(function webpackMissingModule() { var e = new Error("Cannot find module \"jsdom\""); e.code = 'MODULE_NOT_FOUND';; throw e; }()));
-    jsdom.defaultDocumentFeatures = {
-        FetchExternalResources: false,
-        ProcessExternalResources: false
-    };
-
-    var jsnode = __webpack_require__(!(function webpackMissingModule() { var e = new Error("Cannot find module \"jsdom/lib/jsdom/living/generated/Node.js\""); e.code = 'MODULE_NOT_FOUND';; throw e; }()));
-
-    module.exports = {
-        jsdom: jsdom.jsdom,
-        Node: jsnode.expose.Window.Node
-    }
-} else {
-    module.exports = {
-        jsdom: null,
-        Node: Node
-    }
-}
-
-
-/***/ }),
-/* 1 */
-/***/ (function(module, exports, __webpack_require__) {
-
-
-// Set dependencies
-var env = __webpack_require__(3);
-var domConfig = __webpack_require__(0);
-var Node = domConfig.Node;
-
-module.exports = {
-    init: init,
-    log: log,
-    logResult: logResult,
-    hideInvalidTags: hideInvalidTags
-}
-
-// Static
-var options = {};
-
-// Init module options
-function init(config) {
-    options = config;
-}
-
-// Logging
-function log() {
-    if (!options.debug) return;
-    if (env.isFrontEnd) return console.log.apply(console, arguments);
-
-    // Debug for text dom nodes in node.js
-    var args = Array.prototype.slice.apply(arguments);
-    for (var i = 0; i < args.length; i++) {
-        if (args[i] === null || typeof args[i] !== 'object' || typeof args[i].nodeType === 'undefined' || typeof args[i].node === 'undefined') continue;
-
-        if (args[i].node && typeof args[i].node === 'object' && args[i].node.nodeType === Node.TEXT_NODE) {
-            args[i].node = '"' + args[i].node.nodeValue + '"';
-        } else if (args[i].nodeType === Node.TEXT_NODE) {
-            args[i] = '"' + args[i].nodeValue + '"';
-        }
-    }
-
-    console.log.apply(console, args);
-}
-
-// Log whole processed document
-function logResult(root) {
-    if (!options.debug) return;
-    var result = logNode(root);
-
-    log('result html: ');
-    log(result);
-
-    function logNode(node, level) {
-        if (!level) level = 0;
-        if (node.nodeType === Node.TEXT_NODE) return levelIndent(level) + node.nodeValue + "\n";
-        if (node.nodeType !== Node.ELEMENT_NODE) return '';
-
-        var indent = levelIndent(level);
-        var nodeName = node.nodeName.toLowerCase();
-        var output = indent + '<' + nodeName + '>' + "\n";
-        var kids = node.childNodes;
-        level++;
-
-        for (var i = 0; i < kids.length; i++) {
-            output += logNode(kids[i], level);
-        }
-
-        return output + indent + '</' + nodeName + '>' + "\n";
-    }
-
-    function levelIndent(level) {
-        return level ? repeatString(' ', level * 4) : '';
-    }
-}
-
-// Replace not closed or wrongly closed tags with placeholders, to see that they were not processed
-function hideInvalidTags(notClosed, wrongClosed) {
-    if (!options.debug) return;
-
-    var data = null;
-
-    for (var name in notClosed) {
-        data = notClosed[name];
-
-        for (var i = 0; i < data.length; i++) {
-            hideTag(data[i]);
-        }
-    }
-
-    for (var i = 0; i < wrongClosed.length; i++) {
-        data = wrongClosed[i];
-
-        hideTag(data.closed);
-        if (data.opened) hideTag(data.opened);
-    }
-
-    // Do replace
-    function hideTag(data) {
-        var node = data.node;
-        var text = node.nodeValue;
-        var index = data.index;
-        var length = data.tag.length;
-
-        node.nodeValue = text.substring(0, index + 1) + '#' + text.substr(index + 2, length - 4) + '#' + text.substring(index - 1 + length);
-
-        log('replace ->', text, '<- with ->', node.nodeValue);
-    }
-}
-
-// Repeat some string 'count' times
-function repeatString(string, count) {
-    return Array(count*1 + 1).join(string);
-}
-
-
-/***/ }),
-/* 2 */
-/***/ (function(module, exports, __webpack_require__) {
-
-
-// Set dependencies
-var domConfig = __webpack_require__(0);
-var debug = __webpack_require__(1);
-
-//Module variables
-var doc = null;
-var log = debug.log;
-var Node = domConfig.Node;
-
-module.exports = {
-    init: init,
-    repeatString: repeatString,
-    updateTextNodeData: updateTextNodeData,
-    createTextNode: createTextNode,
-    startsWithTag: startsWithTag,
-    endsWithTag: endsWithTag,
-    isDataElement: isDataElement,
-    isFullDataElement: isFullDataElement
-}
-
-// Init module options
-function init(config) {
-    debug.init(config);
-    doc = config.doc;
-}
-
-// Repeat some string 'count' times
-function repeatString(string, count) {
-    return Array(count*1 + 1).join(string);
-}
-
-// Create text node with data based on existing tag node
-function updateTextNodeData(data, level) {
-    data.index = 0;
-    data.node = createTextNode(data.tag);
-
-    if (typeof level !== 'undefined') data.level = level;
-}
-
-// Create text node
-function createTextNode(text) {
-    return doc.createTextNode(text);
-}
-
-// Determine if text node starts with tag
-function startsWithTag(data) {
-    return data.index === 0 ||
-        !data.node.nodeValue.substring(0, data.index).trim().length;
-}
-
-// Determine if text node ends with tag
-function endsWithTag(data) {
-    var text = data.node.nodeValue;
-    var tagEnd = data.index + data.tag.length;
-
-    return text.length === tagEnd || !text.substring(tagEnd).trim().length;
-}
-
-// Determine if element is non-skippabe by tag, e.g. it is relevant for text information
-function isDataElement(node) {
-    return node && node.nodeType !== Node.COMMENT_NODE;
-}
-
-// Determine if element is non-skippabe by tag, e.g. it is relevant for text information
-// This function is used in places where empty text nodes were not deleted
-function isFullDataElement(node) {
-    if (!isDataElement(node)) return false;
-
-    return node.nodeType === Node.TEXT_NODE && !node.nodeValue.trim().length ?
-        (node.nextSibling ? isFullDataElement(node.nextSibling) : false) :
-        true;
-}
-
-
-/***/ }),
-/* 3 */
-/***/ (function(module, exports) {
-
-
-// Determine if we are in browser or in node.js
-module.exports = {
-    isFrontEnd: typeof window !== 'undefined'
-}
-
-
-/***/ }),
-/* 4 */
-/***/ (function(module, exports, __webpack_require__) {
-
-
-// Set dependencies
-var domConfig = __webpack_require__(0);
-var utils = __webpack_require__(2);
-var debug = __webpack_require__(1);
-
-// Module variables
-var updateTextNodeData = utils.updateTextNodeData;
-var createTextNode = utils.createTextNode;
-var startsWithTag = utils.startsWithTag;
-var endsWithTag = utils.endsWithTag;
-var Node = domConfig.Node;
-var log = debug.log;
-
-module.exports = {
-    init: init,
-    extendSeparatedTagParts: extendSeparatedTagParts,
-    extendTagForward: extendTagForward,
-    extendTagBack: extendTagBack
-};
-
-// Init module options
-function init(config) {
-    debug.init(config);
-    utils.init(config);
-}
-
-// Extend tag, if it's parts are in separate node trees
-function extendSeparatedTagParts(opened, closed) {
-    var relation = opened.node.parentElement.compareDocumentPosition(closed.node.parentElement);
-
-    if (relation & Node.DOCUMENT_POSITION_CONTAINS) {
-        extendTagForward(opened, closed, true);
-    } else if (relation & Node.DOCUMENT_POSITION_CONTAINED_BY) {
-        extendTagBack(opened, closed, true);
-    } else {
-        // Tags are still in different node trees, so we extend both of them towards each other, to reach a common parent element
-
-        if (opened.level >= closed.level) {
-            log('-------------- extend tag both ways starting from closed');
-            extendTagBack(opened, closed, true);
-            extendTagForward(opened, closed);
-        } else {
-            log('-------------- extend tag both ways starting from opened');
-            extendTagForward(opened, closed, true);
-            extendTagBack(opened, closed);
-        }
-    }
-}
-
-// Correctly surround by tag all data that's nested inside it, to avoid partial nodes removal.
-// Moving up the node tree, from opened to closed
-// If tags are created in tables outside table cells, mark tags as temporary
-function extendTagForward(opened, closed, tillCommonAncestor) {
-    log('-------------- extend tag forward');
-
-    var level = opened.level;
-    var parent = opened.node;
-    var newClosed = null;
-
-    if (opened.node.nextSibling || !endsWithTag(opened)) {
-        newClosed = createTextNode(closed.tag);
-        opened.node.parentElement.appendChild(newClosed);
-    }
-
-    while (true) {
-        level--;
-        parent = parent.parentElement;
-
-        if (!parent.nextSibling) continue;
-
-        updateTextNodeData(opened, level);
-        parent.parentElement.insertBefore(opened.node, parent.nextSibling);
-        if (tillCommonAncestor ? parent.parentElement.contains(closed.node) : level <= closed.level) break;
-
-        newClosed = createTextNode(closed.tag);
-        parent.parentElement.appendChild(newClosed);
-    }
-}
-
-// Correctly surround by tag all data that's nested inside it, to avoid partial nodes removal.
-// Moving up the node tree, from closed to opened
-// If tags are created in tables outside table cells, mark tags as temporary
-function extendTagBack(opened, closed, tillCommonAncestor) {
-    log('-------------- extend tag back');
-
-    var level = closed.level;
-    var parent = closed.node.parentElement;
-    var newOpened = null;
-
-    if (closed.node.previousSibling || !startsWithTag(closed)) {
-        newOpened = createTextNode(opened.tag);
-        parent.insertBefore(newOpened, parent.firstChild);
-    }
-
-    parent = closed.node;
-
-    while (true) {
-        level--;
-        parent = parent.parentElement;
-
-        if (!parent.previousSibling) continue;
-
-        updateTextNodeData(closed, level);
-        parent.parentElement.insertBefore(closed.node, parent);
-        if (tillCommonAncestor ? parent.parentElement.contains(opened.node) : level <= opened.level) break;
-
-        newOpened = createTextNode(opened.tag);
-        parent.parentElement.insertBefore(newOpened, parent.parentElement.firstChild);
-    }
-}
-
-
-/***/ }),
-/* 5 */
-/***/ (function(module, exports, __webpack_require__) {
-
-
-// Set dependencies
-var domConfig = __webpack_require__(0);
-var utils = __webpack_require__(2);
-var debug = __webpack_require__(1);
-
-// Module variables
-var startsWithTag = utils.startsWithTag;
-var endsWithTag = utils.endsWithTag;
-var repeatString = utils.repeatString;
-var createTextNode = utils.createTextNode;
-var Node = domConfig.Node;
-var log = debug.log;
-var tableContainers = {'TABLE': 1, 'THEAD': 1, 'TBODY': 1, 'TR': 1};
-var tableCells = {'TD': 1, 'TH': 1};
-
-module.exports = {
-    init: init,
-    run: run,
-    tableCells: tableCells
-};
-
-// Init module options
-function init(config) {
-    debug.init(config);
-    utils.init(config);
-}
-
-// Turn tmp tags, created in tables outside table cells, into correct tags inside cells
-function run(tag) {
-    // Section was removed or is not closed, or is correct
-    if (!tag.opened.node || !tag.closed || !isTmpTag(tag.opened)) return;
-    log('-- fix table tag: ', tag);
-
-    extendTmpTag(tag.opened, tag.closed);
-}
-
-// Extand tmp table tag to table cells, that are contained inside this tag
-function extendTmpTag(opened, closed) {
-    var next = opened.node;
-
-    while (true) {
-        next = next.nextSibling;
-        if (next === closed.node) break;
-
-        processNode(next);
-    }
-
-    startsWithTag(opened) && endsWithTag(opened) ?
-        opened.node.parentElement.removeChild(opened.node) :
-        cutNode(opened);
-
-    startsWithTag(closed) && endsWithTag(closed) ?
-        closed.node.parentElement.removeChild(closed.node) :
-        cutNode(closed);
-
-    function processNode(node) {
-        if (node.nodeType !== Node.ELEMENT_NODE || !node.firstChild) return;
-
-        if (!tableCells[node.nodeName]) {
-            for (var i = 0; i < node.childNodes.length; i++) {
-                processNode(node.childNodes[i]);
-            }
-
-            return;
-        }
-
-        node.insertBefore(createTextNode(opened.tag), node.firstChild);
-        node.appendChild(createTextNode(closed.tag));
-    }
-}
-
-// Determine if tag node belongs to table nodes area, where we can create only temporary tags
-function isTmpTag(data) {
-    return data.node.parentElement && !!tableContainers[data.node.parentElement.nodeName];
-}
-
-// Cut tag from it's containing text node, if this text node contains another tag text
-// Tag is replaced by whitespaces, to not mess with indexes of other possible tags in text
-function cutNode(data) {
-    var text = data.node.nodeValue;
-    data.node.nodeValue = text.substring(0, data.index) + repeatString(' ', data.tag.length) + text.substring(data.index + data.tag.length);
-}
-
-
-/***/ }),
-/* 6 */
-/***/ (function(module, exports, __webpack_require__) {
-
-
-// Set dependencies
-var domConfig = __webpack_require__(0);
-var utils = __webpack_require__(2);
-var debug = __webpack_require__(1);
-
-// Module variables
-var Node = domConfig.Node;
-var updateTextNodeData = utils.updateTextNodeData;
-var startsWithTag = utils.startsWithTag;
-var endsWithTag = utils.endsWithTag;
-var repeatString = utils.repeatString;
-var log = debug.log;
-var root = null;
-var tags = [];
-var tagsByLevel = {};
-var clearSpaces = [];
-var spacesReg = null;
-
-module.exports = {
-    init: init,
-    run: run
-};
-
-// Init module options
-function init(config) {
-    debug.init(config);
-    utils.init(config);
-
-    root = config.root;
-    spacesReg = config.regs.spaces;
-    tagsByLevel = {};
-    clearSpaces = [];
-}
-
-// Perform improve on already fixed tags: push out from containing nodes and merging same tags sections
-function run(improveTags) {
-    tags = improveTags;
-
-    for (var i = 0; i < tags.length; i++) {
-        var tag = tags[i];
-        log('-- improve tag: ', tag);
-
-        // Section was removed or is not closed
-        if (!tag.opened.node || !tag.closed) continue;
-
-        var prevSame = getPrevSameTag(tag);
-        if (prevSame) {
-            // Tag is merged with previous same tag, and then we perform improve on result tag
-            var newIdx = mergeTags(tag, prevSame);
-            i = newIdx - 1;
-            continue;
-        }
-
-        // Tag was moved up to another level. Repeat cycle for it again
-        if (riseTag(tag)) i--;
-    }
-
-    // When merging tags sections, we replaced sibling tags with spaces. Now we remove those spaces
-    for (var i = 0; i < clearSpaces.length; i++) {
-        if (!clearSpaces[i]) continue;
-
-        var node = clearSpaces[i];
-        var text = node.nodeValue;
-
-        text = text.replace(spacesReg, ' ').trim();
-        if (node.startsWithSpace) text = ' ' + text;
-        if (node.endsWithSpace) text = text + ' ';
-
-        node.nodeValue = text;
-    }
-}
-
-// Find previous sibling tag with same name for current tag
-function getPrevSameTag(tag) {
-    var levelTags = tagsByLevel[tag.opened.level];
-    if (!levelTags || !levelTags.length) return null;
-
-    var idx = levelTags.length - 1;
-
-    // Get previous sibling tag on that level
-    do {
-        var prev = levelTags[idx];
-        idx--;
-    } while ((!prev.opened.node || prev === tag) && idx >= 0);
-
-    // Check if it has same name as current tag
-    var isSame = prev.opened.node && prev.opened.name === tag.opened.name && prev.opened.type === tag.opened.type;
-    if (!isSame) return null;
-
-    // Check if there is no data between tags
-    var canMerge = false;
-    if (tag.opened.node.previousSibling === prev.closed.node) {
-        canMerge = startsWithTag(tag.opened) && endsWithTag(prev.closed);
-    } else if (tag.opened.node === prev.closed.node) {
-        var prevClosed = prev.closed.node.nodeValue.substring(prev.closed.index, tag.opened.index);
-        canMerge = prevClosed.trim().length === prev.closed.tag.length;
-    }
-
-    return canMerge ? prev : null;
-}
-
-// Merge tag with it's previous same name sibling
-function mergeTags(tag, prev) {
-    log('-- merge with:', prev);
-
-    startsWithTag(tag.opened) && endsWithTag(tag.opened) ?
-        tag.opened.node.parentElement.removeChild(tag.opened.node) :
-        cutNode(tag.opened, true);
-
-    startsWithTag(prev.closed) && endsWithTag(prev.closed) ?
-        prev.closed.node.parentElement.removeChild(prev.closed.node) :
-        cutNode(prev.closed, true);
-
-    for (var name in tag.closed) {
-        prev.closed[name] = tag.closed[name];
-    }
-
-    tag.opened.node = null;
-    tag.closed.node = null;
-
-    return prev.opened.improveKey;
-}
-
-// Rise tag up from it's containing node, if all node's data is inside this tag
-function riseTag(tag) {
-    var level = tag.opened.level;
-
-    while (canRise(tag)) {
-        rise(tag);
-    }
-
-    var newLevel = tag.opened.level;
-    var rised = level !== newLevel;
-    if (!tagsByLevel[newLevel]) tagsByLevel[newLevel] = [];
-
-    if (rised) {
-        // Mark that tag was removed from level
-        var oldLevelTags = tagsByLevel[level];
-        if (oldLevelTags && oldLevelTags.length) {
-            var last = oldLevelTags[oldLevelTags.length - 1];
-            if (last === tag) oldLevelTags.pop();
-        }
-
-        // Mark that tag was added to new level
-        tagsByLevel[newLevel].push(tag);
-    } else {
-        // Add tag to it's current level, if it is processed first time
-        var length = tagsByLevel[level].length;
-        var last = length ? tagsByLevel[level][length - 1] : null;
-        if (!last || last !== tag) tagsByLevel[level].push(tag);
-    }
-
-    return rised;
-}
-
-// Perform rise
-function rise(tag) {
-    var opened = tag.opened;
-    var closed = tag.closed;
-    var parent = opened.node.parentElement;
-    var newParent = parent.parentElement;
-
-    // Rise opened tag
-    if (!endsWithTag(opened)) cutNode(opened);
-    newParent.insertBefore(opened.node, parent);
-
-    // Rise closed tag
-    if (!startsWithTag(closed)) cutNode(closed);
-    parent.nextSibling ?
-        newParent.insertBefore(closed.node, parent.nextSibling) :
-        newParent.appendChild(closed.node);
-
-    opened.level--;
-    closed.level--;
-}
-
-// Determine if we need to rise tag section up from it's parent node
-function canRise(tag) {
-    var opened = tag.opened;
-    var closed = tag.closed;
-    var parent = opened.node.parentElement;
-
-    return parent &&
-        parent !== root &&
-        parent.parentElement &&
-        startsWithTag(opened) &&
-        endsWithTag(closed) &&
-        !opened.node.previousSibling &&
-        !closed.node.nextSibling;
-}
-
-// Cut tag from it's containing text node, if this text node contains another text
-// Tag is replaced by spaces, to not mess with indexes of other possible tags in text
-function cutNode(data, remove) {
-    var node = data.node;
-    var text = node.nodeValue;
-
-    if (typeof node.startsWithSpace === 'undefined') {
-        node.startsWithSpace = !text.substring(0, 1).trim().length;
-    }
-
-    if (typeof node.endsWithSpace === 'undefined') {
-        node.endsWithSpace = !text.substr(-1).trim().length;
-    }
-
-    node.nodeValue = text.substring(0, data.index) + repeatString(' ', data.tag.length) + text.substring(data.index + data.tag.length);
-    clearSpaces.push(data.node);
-
-    if (!remove) updateTextNodeData(data);
-}
-
-
-/***/ }),
-/* 7 */
-/***/ (function(module, exports, __webpack_require__) {
-
-
-// Set dependencies
-var domConfig = __webpack_require__(0);
-var utils = __webpack_require__(2);
-var debug = __webpack_require__(1);
-
-// Module variables
-var updateTextNodeData = utils.updateTextNodeData;
-var startsWithTag = utils.startsWithTag;
-var endsWithTag = utils.endsWithTag;
-var isDataElement = utils.isDataElement;
-var isFullDataElement = utils.isFullDataElement;
-var repeatString = utils.repeatString;
-var Node = domConfig.Node;
-var log = debug.log;
-var nodesWithPlaceholders = [];
-
-module.exports = {
-    init: init,
-    handleCaseClosedIsAncestor: handleCaseClosedIsAncestor,
-    handleCaseOpenedIsAncestor: handleCaseOpenedIsAncestor,
-    handleCaseSeparateTrees: handleCaseSeparateTrees,
-    removePlaceholders: removePlaceholders
-};
-
-// Init module options
-function init(config) {
-    debug.init(config);
-    utils.init(config);
-
-    nodesWithPlaceholders = [];
-}
-
-// Move tags in case when closing tag is in ancestor node of opening
-// If tags are moved inside table outside table cells, mark tags as temporary
-function handleCaseClosedIsAncestor(opened, closed) {
-    log('closing tag is in ancestor node of opening tag');
-
-    // Try to move opening tag up
-    if (startsWithTag(opened) && !isDataElement(opened.node.previousSibling)) {
-        log('--------------- move opened tag up outside');
-        moveTagUpBackword(opened, closed.level);
-    } else if (endsWithTag(opened) && !isDataElement(opened.node.nextSibling)) {
-        log('--------------- move opened tag up inside');
-        moveTagUpForward(opened, closed.level);
-    }
-
-    // If still necessary, try to move closing tag down
-    if (opened.level !== closed.level && startsWithTag(closed) && closed.node.previousSibling.contains(opened.node)) {
-        log('--------------- move closed tag down inside');
-        moveTagDownBackword(closed, opened.level, opened.node);
-    }
-}
-
-// Move tags in case when opening tag is in ancestor node of closing
-// If tags are moved inside table outside table cells, mark tags as temporary
-function handleCaseOpenedIsAncestor(opened, closed) {
-    log('closed tag is contained inside open');
-
-    // Try to move closing tag up
-    if (endsWithTag(closed) && !isFullDataElement(closed.node.nextSibling)) {
-        log('--------------- move closed tag up outside');
-        moveTagUpForward(closed, opened.level);
-    } else if (startsWithTag(closed) && !isDataElement(closed.node.previousSibling)) {
-        log('--------------- move closed tag up inside');
-        moveTagUpBackword(closed, opened.level);
-    }
-
-    // If still necessary, try to move opening tag down
-    if (opened.level !== closed.level && endsWithTag(opened) && opened.node.nextSibling.contains(closed.node)) {
-        log('--------------- move opened tag down inside');
-        moveTagDownForward(opened, closed.level, closed.node);
-    }
-}
-
-// Move tags in case when they are not in ancestor nodes of each other
-// In here we first try to move tags to level of each other, and than - to common parent node
-// For this we pass additional parameter to 'moveTagUp...' functions
-// If tags are moved inside table outside table cells, mark tags as temporary
-function handleCaseSeparateTrees(opened, closed) {
-    log('opening and closing tags are not in ancestor nodes of each other');
-
-    // Try to move opening tag up
-    if (startsWithTag(opened) && !isDataElement(opened.node.previousSibling)) {
-        log('--------------- move opened tag up outside');
-        moveTagUpBackword(opened, closed.level, closed.node);
-    } else if (endsWithTag(opened) && !isDataElement(opened.node.nextSibling)) {
-        log('--------------- move opened tag up inside');
-        moveTagUpForward(opened, closed.level, closed.node);
-    }
-
-    // Try to move closing tag up
-    if (endsWithTag(closed) && !isFullDataElement(closed.node.nextSibling)) {
-        log('--------------- move closed tag up outside');
-        moveTagUpForward(closed, opened.level, opened.node);
-    } else if (startsWithTag(closed) && !isDataElement(closed.node.previousSibling)) {
-        log('--------------- move closed tag up inside');
-        moveTagUpBackword(closed, opened.level, opened.node);
-    }
-}
-
-// Move tag down along nodes chain, that contain another part of tag, towards end of document
-function moveTagDownForward(data, toLevel, toNode) {
-    var descendant = data.node.nextSibling;
-
-    while (data.level < toLevel && descendant.contains(toNode)) {
-        data.level++;
-        descendant = descendant.firstChild;
-    }
-
-    if (data.node.nodeValue.length !== data.tag.length) {
-        replaceMovedTag(data);
-        updateTextNodeData(data);
-    }
-
-    var parent = descendant.parentElement;
-    parent.insertBefore(data.node, parent.firstChild);
-}
-
-// Move tag down along nodes chain, that contain another part of tag, towards beginning of document
-function moveTagDownBackword(data, toLevel, toNode) {
-    var descendant = data.node.previousSibling;
-
-    while (data.level < toLevel && descendant.contains(toNode)) {
-        data.level++;
-        descendant = descendant.lastChild;
-    }
-
-    if (data.node.nodeValue.length !== data.tag.length) {
-        replaceMovedTag(data);
-        updateTextNodeData(data);
-    }
-
-    descendant.parentElement.appendChild(data.node);
-}
-
-// Move tag node up the node tree, backwords
-function moveTagUpBackword(data, toLevel, toNode) {
-    var ancestor = data.node;
-
-    do {
-        data.level--;
-        ancestor = ancestor.parentElement;
-    } while ((data.level > toLevel || (toNode && !ancestor.parentElement.contains(toNode))) && !isDataElement(ancestor.previousSibling));
-
-    if (data.node.nodeValue.length !== data.tag.length) {
-        replaceMovedTag(data);
-        updateTextNodeData(data);
-    }
-
-    ancestor.parentElement.insertBefore(data.node, ancestor);
-}
-
-// Move tag node up the node tree, forward
-function moveTagUpForward(data, toLevel, toNode) {
-    var ancestor = data.node;
-
-    do {
-        data.level--;
-        ancestor = ancestor.parentElement;
-    } while ((data.level > toLevel || (toNode && !ancestor.parentElement.contains(toNode))) && !isFullDataElement(ancestor.nextSibling));
-
-    if (data.node.nodeValue.length !== data.tag.length) {
-        replaceMovedTag(data);
-        updateTextNodeData(data);
-    }
-
-    var grandpa = ancestor.parentElement;
-    var next = ancestor.nextSibling;
-    next ? grandpa.insertBefore(data.node, next) : grandpa.appendChild(data.node);
-}
-
-// Remove placeholders after moving tags
-function removePlaceholders() {
-    var data = null;
-    while (data = nodesWithPlaceholders.pop()) {
-        data.node.nodeValue = data.node.nodeValue.replace(data.placeholder, '');
-    }
-}
-
-// Replace moved tag with placeholder, to not change text node content length
-function replaceMovedTag(data) {
-    var text = data.node.nodeValue;
-    var size = data.tag.length;
-    var placeholder = '{#' + repeatString('_', size - 4) + '#}';
-
-    data.node.nodeValue = text.substring(0, data.index) + placeholder + text.substring(data.index + size);
-    nodesWithPlaceholders.push({node: data.node, placeholder: placeholder});
-}
-
-
-/***/ }),
-/* 8 */
-/***/ (function(module, exports, __webpack_require__) {
-
-
-// Set dependencies
-var domConfig = __webpack_require__(0);
-var debug = __webpack_require__(1);
-
-// Static variable
-var Node = domConfig.Node;
-var log = debug.log;
-var root = null;
-var replacableNodes = {'P': 1, 'DIV': 1, 'SPAN': 1, 'I': 1, 'EM': 1, 'STRONG': 1, 'LI': 1};
-
-module.exports = {
-    init: init,
-    run: replaceEmptyNode
-};
-
-// Init module options
-function init(config) {
-    debug.init(config);
-
-    root = config.root;
-}
-
-// Replace parent node with tag, if tag is empty and node does not contain other data
-function replaceEmptyNode(data, coupleData, mode) {
-    var node = data.node;
-    var parent = node.parentElement;
-    var tagText = mode === 'both' ? data.tag + coupleData.tag : data.tag;
-
-    // Simple check
-    var skip =
-        !parent ||
-        parent === root ||
-        !parent.parentElement ||
-        parent.childNodes.length > 1 ||
-        !replacableNodes[parent.nodeName];
-
-    if (skip) return;
-
-    var empty = tagText === node.nodeValue.trim();
-
-    // Check if tag text node contains only tag(s) and spaces
-    if (!empty && mode === 'both') {
-        var text = node.nodeValue;
-        var inner = text.substring(0, data.index) +
-            text.substring(data.index + data.tag.length, coupleData.index) +
-            text.substring(coupleData.index + coupleData.tag.length);
-
-        empty = !inner.trim().length;
-    }
-
-    if (!empty) return;
-
-    parent.parentElement.replaceChild(node, parent);
-    data.level--;
-
-    // There are element nodes in new parent, so it's definitely not empty. Do not perform recursive replace
-    if (node.parentElement.children.length) return;
-
-    // Join moved node with possible sibling empty text nodes in new parent element
-    // Node.normalize() can not be used here, because it can destroy current references to text nodes with tags
-    var tagsMerged = mergeTextNodes(data, coupleData, mode);
-    mode = tagsMerged ? 'both' : mode;
-
-    replaceEmptyNode(data, coupleData, mode);
-}
-
-// Remove all empty text nodes, that are siblings of given text node
-// Also if other tag node is now sibling, merge it
-// When merging, update references to tags nodes, if they are changed
-function mergeTextNodes(data, coupleData, mode) {
-    var prev = data.node;
-    var next = data.node;
-    var tagsMerged = mode === 'both' ? true : false;
-    var remove = [];
-
-    while (true) {
-        prev = prev.previousSibling;
-        if (!prev || prev.nodeType !== Node.TEXT_NODE) break;
-
-        if (prev === coupleData.node) {
-            tagsMerged = true;
-            data.index += prev.nodeValue.length;
-            data.node.nodeValue = prev.nodeValue + data.node.nodeValue;
-            coupleData.node = data.node;
-        } else if (prev.nodeValue.trim().length) {
-            break;
-        }
-
-        remove.push(prev);
-    }
-
-    while (true) {
-        next = next.nextSibling;
-        if (!next || next.nodeType !== Node.TEXT_NODE) break;
-
-        if (next === coupleData.node) {
-            tagsMerged = true;
-            coupleData.index += data.node.nodeValue.length;
-            data.node.nodeValue = data.node.nodeValue + next.nodeValue;
-            coupleData.node = data.node;
-        } else if (next.nodeValue.trim().length) {
-            break;
-        }
-
-        remove.push(next);
-    }
-
-    var parent = data.node.parentElement;
-    for (var i = 0; i < remove.length; i++) {
-        parent.removeChild(remove[i]);
-    }
-
-    return tagsMerged;
-}
-
-
-/***/ }),
-/* 9 */
-/***/ (function(module, exports, __webpack_require__) {
-
-var map = {
-	"./debug": 1,
-	"./debug.js": 1,
-	"./dom-config": 0,
-	"./dom-config.js": 0,
-	"./env": 3,
-	"./env.js": 3,
-	"./extend-tags": 4,
-	"./extend-tags.js": 4,
-	"./fix-table-tags": 5,
-	"./fix-table-tags.js": 5,
-	"./improve-tags": 6,
-	"./improve-tags.js": 6,
-	"./move-tags": 7,
-	"./move-tags.js": 7,
-	"./replace-empty-node": 8,
-	"./replace-empty-node.js": 8,
-	"./utils": 2,
-	"./utils.js": 2
-};
-function webpackContext(req) {
-	return __webpack_require__(webpackContextResolve(req));
-};
-function webpackContextResolve(req) {
-	var id = map[req];
-	if(!(id + 1)) // check for number
-		throw new Error("Cannot find module '" + req + "'.");
-	return id;
-};
-webpackContext.keys = function webpackContextKeys() {
-	return Object.keys(map);
-};
-webpackContext.resolve = webpackContextResolve;
-module.exports = webpackContext;
-webpackContext.id = 9;
-
-
-/***/ }),
-/* 10 */
-/***/ (function(module, exports, __webpack_require__) {
-
-
-// Set dependencies
-var domConfig = script('dom-config');
-var utils = script('utils');
-var debug = script('debug');
-var env = script('env');
-var replaceEmptyNode = script('replace-empty-node');
-var moveTags = script('move-tags');
-var extendTags = script('extend-tags');
-var fixTableTags = script('fix-table-tags');
-var improveTags = script('improve-tags');
-
-// Module variables
-var jsdom = domConfig.jsdom;
-var Node = domConfig.Node;
-var repeatString = utils.repeatString;
-var startsWithTag = utils.startsWithTag;
-var endsWithTag = utils.endsWithTag;
-var log = debug.log;
-
-//'startSpaces' and 'endSpaces' also match \u00a0, that is a representation of &nbsp; in textNode.nodeValue
-var regs = {
-    spaces: new RegExp('\\s+', 'g'),
-    startSpaces: new RegExp('^\\s+'),
-    endSpaces: new RegExp('\\s+$'),
-    tagName: new RegExp('(?:[^"\']+|"[^"]+"|\'[^\']+\')', 'g'),
-    tag: new RegExp('\\{\\{\\s*([#^/])([^}]*)\\}\\}', 'g')
-};
-
-module.exports = mustacheTidy;
-
-// Require script
-function script(module) {
-    return __webpack_require__(9)("./" + module);
-}
-
-// Base lib function
-function mustacheTidy(html, options) {
-    if (typeof html !== 'string' && !(html instanceof Node)) return null;
-
-    var doc = null;
-    var root = null;
-    var returnResult = false;
-
-    var step;
-    var improve;
-    var notClosed;
-    var wrongClosed;
-    var currentOpened;
-
-    initDom();
-    initVars('1:tidy');
-    tidy();
-    if (root instanceof Node) root.normalize();
-
-    initVars('2:improve');
-    tidy();
-    improveTags.run(improve);
-
-    initVars('3:fix-tables');
-    tidy();
-
-    debug.hideInvalidTags(notClosed, wrongClosed);
-    debug.logResult(root);
-
-    return returnResult ? root.innerHTML : null;
-
-    // Init variables and modules
-    function initVars(doStep) {
-        for (var i = 0; i < regs.length; i++) {
-            regs[i].lastIndex = 0;
-        }
-
-        step = doStep;
-        improve = [];
-        notClosed = {};
-        wrongClosed = [];
-        currentOpened = [];
-
-        debug.init(options);
-        utils.init(options);
-        replaceEmptyNode.init(options);
-        moveTags.init(options);
-        extendTags.init(options);
-        fixTableTags.init(options);
-        improveTags.init(options);
-    }
-
-    // Init dom tree
-    function initDom() {
-        if (env.isFrontEnd) {
-            // On front-end input can be either string or DOM Node
-            doc = document;
-
-            if (typeof html === 'string') {
-                returnResult = true;
-                root = document.createElement('div');
-                root.innerHTML = html;
-            } else {
-                root = html;
-            }
-        } else {
-            // In node.js we expect only string input
-            doc = jsdom(html).defaultView.document;
-            root = doc.documentElement.lastChild;
-            returnResult = true;
-        }
-
-        if (!options) options = {};
-        options.doc = doc;
-        options.root = root;
-        options.regs = regs;
-    }
-
-    // Launch processing given html source
-    function tidy() {
-        var level = 0;
-
-        tidyNode(root, level);
-    }
-
-    // Perform tidy on single DOM node
-    function tidyNode(node, level) {
-        if (node.nodeType === Node.TEXT_NODE) return tidyTextNode(node, level);
-        if (node.nodeType !== Node.ELEMENT_NODE) return;
-
-        level++;
-
-        // Convert kids collection to non-live array, because we can remove empty text nodes when iterating
-        // If we use live collection, in that case we'll not iterate correctly
-        var kids = Array.prototype.slice.call(node.childNodes);
-        for (var i = 0; i < kids.length; i++) {
-            tidyNode(kids[i], level);
-        }
-    }
-
-    // Perform tidy on single text DOM node
-    function tidyTextNode(node, level) {
-        node.nodeValue = smartTrim(node.nodeValue);
-
-        // Remove empty text nodes
-        if (!node.nodeValue.length && node.parentElement) {
-            node.parentElement.removeChild(node);
-            return;
-        }
-
-        var prev = node.nodeValue;
-        regs.tag.lastIndex = 0;
-
-        while (true) {
-            // We might have removed previous tag from this text on previous iteration, so we reduce start regexp position
-            if (prev.length !== node.nodeValue.length) regs.tag.lastIndex -= prev.length - node.nodeValue.length;
-            prev = node.nodeValue;
-
-            var match = regs.tag.exec(node.nodeValue);
-            if (!match || (!match[2].length && match[1] !== '/')) break;
-
-            // Remove spaces in tag name, if they are not inside quotes (so not belonging to string literals)
-            match[2] = match[2].replace(regs.tagName, function(match) {
-                var first = match.substring(0, 1);
-                return first !== '"' && first !== "'" ? match.replace(regs.spaces, '') : match;
-            });
-
-            match[1] !== '/' ?
-                handleOpenedTag(node, match, level) :
-                handleClosedTag(node, match, level);
-        }
-    }
-
-    // Handle opened mustache tag. Just mark it as opened and save basic data
-    function handleOpenedTag(node, match, level) {
-        var name = match[2];
-        var data = {
-            name: name,
-            type: match[1],
-            tag: match[0],
-            node: node,
-            index: match.index,
-            level: level,
-            openedKey: currentOpened.length
-        };
-
-        // Register tag as opened
-        if (typeof notClosed[name] === 'undefined') notClosed[name] = [];
-        if (step === '2:improve') {
-            data.improveKey = improve.length;
-            improve.push({opened: data});
-        }
-        notClosed[name].push(data);
-        currentOpened.push(name);
-
-        log('opened: ', name);
-    }
-
-    // Handle closed mustache tag
-    function handleClosedTag(node, match, level) {
-        var name = match[2];
-        var data = {
-            node: node,
-            tag: match[0],
-            index: match.index,
-            level: level
-        };
-
-        // Shorthand closed tag is used
-        if (!name.length && currentOpened.length) {
-            name = currentOpened[currentOpened.length - 1];
-        }
-
-        // Register tag as wrong closed (have no opened tag)
-        if (typeof notClosed[name] === 'undefined' || !name.length) {
-            wrongClosed.push({
-                closed: data
-            });
-
-            return;
-        }
-
-        // Tag is closed, so stop tracking it
-        var opened = notClosed[name].pop();
-        if (!notClosed[name].length) delete notClosed[name];
-
-        // Register tag as wrong closed (closed not in turn)
-        if (name !== currentOpened[currentOpened.length - 1]) {
-            log('remove wrong closed "' + name + '" from stack: ', currentOpened[opened.openedKey]);
-
-            currentOpened[opened.openedKey] = null;
-            wrongClosed.push({
-                opened: opened,
-                closed: data
-            });
-        } else {
-            // Tag is closed correctly, so launch tidy for it
-            do {
-                log('pop last element from opened stack: ', currentOpened[currentOpened.length - 1]);
-
-                currentOpened.pop();
-            } while (currentOpened[currentOpened.length - 1] === null);
-
-            log('closed: ', name);
-
-            if (step === '1:tidy') {
-                tidyTag({opened: opened, closed: data});
-            } else if (step === '2:improve') {
-                improve[opened.improveKey].closed = data;
-            } else if (step === '3:fix-tables') {
-                fixTableTags.run({opened: opened, closed: data});
-            }
-        }
-    }
-
-    // Perform tidy on mustache tag section
-    function tidyTag(data) {
-        log('======= start tidy: ', data.opened.tag, data.closed.tag);
-
-        var opened = data.opened;
-        var closed = data.closed;
-
-        if (opened.node !== closed.node) {
-            replaceEmptyNode.run(opened, closed, 'opened');
-            replaceEmptyNode.run(closed, opened, 'closed');
-        }
-
-        if (opened.node === closed.node) {
-            replaceEmptyNode.run(opened, closed, 'both');
-        }
-
-        if (opened.node.parentElement !== closed.node.parentElement) {
-            var relation = opened.node.parentElement.compareDocumentPosition(closed.node.parentElement);
-
-            if (relation & Node.DOCUMENT_POSITION_CONTAINS) {
-
-                // Closing tag is in ancestor node of opening tag
-                moveTags.handleCaseClosedIsAncestor(opened, closed);
-                if (opened.level !== closed.level) extendTags.extendTagForward(opened, closed);
-
-            } else if (relation & Node.DOCUMENT_POSITION_CONTAINED_BY) {
-
-                // Opening tag is in ancestor node of closing tag
-                moveTags.handleCaseOpenedIsAncestor(opened, closed);
-                if (opened.level !== closed.level) extendTags.extendTagBack(opened, closed);
-
-            } else {
-
-                // Tags are not in ancestor nodes of each other
-                moveTags.handleCaseSeparateTrees(opened, closed);
-                if (opened.node.parentElement !== closed.node.parentElement) extendTags.extendSeparatedTagParts(opened, closed);
-            }
-        }
-
-        moveTags.removePlaceholders();
-        removeEmptyTag(opened, closed);
-    }
-
-    // If tag section holds no data, remove it
-    function removeEmptyTag(opened, closed) {
-        var text = null;
-
-        // Tags are in same text node
-        if (opened.node === closed.node) {
-            text = opened.node.nodeValue;
-            var inner = text.substring(opened.index + opened.tag.length, closed.index);
-            if (!inner.trim().length) {
-                opened.node.nodeValue = text.substring(0, opened.index) + text.substring(closed.index + closed.tag.length);
-                opened.node = closed.node = null;
-            }
-
-            return;
-        }
-
-        var parent = opened.node.parentElement;
-        var empty = parent && opened.node.nextSibling === closed.node && endsWithTag(opened) && startsWithTag(closed);
-        if (!empty) return;
-
-        // Tags are in different text nodes
-        startsWithTag(opened) ?
-            parent.removeChild(opened.node) :
-            opened.node.nodeValue = opened.node.nodeValue.substring(0, opened.index);
-
-        endsWithTag(closed) ?
-            parent.removeChild(closed.node) :
-            closed.node.nodeValue = closed.node.nodeValue.substring(closed.index + closed.tag.length);
-
-        opened.node = closed.node = null;
-    }
-
-    // Trim text, leaving single start and ending spaces
-    function smartTrim(text) {
-        var hasStartSpace = !!regs.startSpaces.exec(text);
-        var hasEndSpace = !!regs.endSpaces.exec(text);
-
-        text = text.trim();
-        if (!text.length) return '';
-
-        if (hasStartSpace) text = ' ' + text;
-        if (hasEndSpace) text = text + ' ';
-
-        return text;
-    }
-}
-
-
-/***/ })
-/******/ ]);
+/******/ 	/* webpack/runtime/hasOwnProperty shorthand */
+/******/ 	(() => {
+/******/ 		__webpack_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop))
+/******/ 	})();
+/******/ 	
+/************************************************************************/
+/******/ 	
+/******/ 	// startup
+/******/ 	// Load entry module and return exports
+/******/ 	// This entry module is referenced by other modules so it can't be inlined
+/******/ 	var __webpack_exports__ = __webpack_require__("./index.js");
+/******/ 	mustacheTidy = __webpack_exports__;
+/******/ 	
+/******/ })()
+;

@@ -101,7 +101,7 @@ function mustacheTidy(html, options) {
             }
         } else {
             // In node.js we expect only string input
-            doc = jsdom(html).defaultView.document;
+            doc = new jsdom(html).window.document;
             root = doc.documentElement.lastChild;
             returnResult = true;
         }
